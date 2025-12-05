@@ -108,7 +108,7 @@ class GameMechanicsService:
     # --- 新增：命运之轮游戏内置配置 ---
     WHEEL_OF_FATE_CONFIG = {
         "min_entry_fee": 500,
-        "max_entry_fee": 50000,
+        "max_entry_fee": 9999999,
         "cooldown_seconds": 60,
         "timeout_seconds": 60,
         "levels": [

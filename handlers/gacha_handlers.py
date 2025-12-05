@@ -1,6 +1,8 @@
-from astrbot.api.event import filter, AstrMessageEvent
-from ..utils import parse_target_user_id, to_percentage, safe_datetime_handler
 from typing import TYPE_CHECKING
+
+from astrbot.api.event import AstrMessageEvent, filter
+
+from ..utils import parse_target_user_id, safe_datetime_handler, to_percentage
 
 if TYPE_CHECKING:
     from ..main import FishingPlugin
@@ -98,7 +100,7 @@ async def ten_gacha(self: "FishingPlugin", event: AstrMessageEvent):
     if len(args) < 2:
         yield event.plain_result("❌ 请指定要进行十连抽卡的抽奖池 ID，例如：/十连 1")
         return
-    
+
     # 检查是否有次数参数
     times = 1
     if len(args) >= 3:
@@ -113,19 +115,19 @@ async def ten_gacha(self: "FishingPlugin", event: AstrMessageEvent):
         else:
             yield event.plain_result("❌ 抽卡次数必须是数字")
             return
-    
+
     pool_id = args[1]
     if not pool_id.isdigit():
         yield event.plain_result("❌ 抽奖池 ID 必须是数字，请检查后重试。")
         return
     pool_id = int(pool_id)
-    
+
     # 如果是多次十连，使用合并统计功能
     if times > 1:
         async for result in multi_ten_gacha(self, event, pool_id, times):
             yield result
         return
-    
+
     # 单次十连抽卡
     if result := self.gacha_service.perform_draw(user_id, pool_id, num_draws=10):
         if result["success"]:
@@ -145,16 +147,18 @@ async def ten_gacha(self: "FishingPlugin", event: AstrMessageEvent):
         yield event.plain_result("❌ 出错啦！请稍后再试。")
 
 
-async def multi_ten_gacha(self: "FishingPlugin", event: AstrMessageEvent, pool_id: int, times: int):
+async def multi_ten_gacha(
+    self: "FishingPlugin", event: AstrMessageEvent, pool_id: int, times: int
+):
     """多次十连抽卡，使用合并统计"""
     user_id = self._get_effective_user_id(event)
-    
+
     # 获取卡池信息以计算消耗
     pool = self.gacha_service.gacha_repo.get_pool_by_id(pool_id)
     if not pool:
         yield event.plain_result("❌ 卡池不存在")
         return
-    
+
     # 计算总消耗
     use_premium_currency = (getattr(pool, "cost_premium_currency", 0) or 0) > 0
     total_draws = times * 10  # 每次十连是10次抽卡
@@ -166,33 +170,33 @@ async def multi_ten_gacha(self: "FishingPlugin", event: AstrMessageEvent, pool_i
         total_cost = (pool.cost_coins or 0) * total_draws
         cost_type = "金币"
         cost_unit = ""
-    
+
     # 统计信息
     total_items = 0
     item_counts = {}  # 物品名称 -> 数量
     rarity_counts = {i: 0 for i in range(1, 11)}  # 稀有度统计，支持1-10星
     coin_total = 0
-    
+
     # 执行多次十连抽卡
     for i in range(times):
         if result := self.gacha_service.perform_draw(user_id, pool_id, num_draws=10):
             if result["success"]:
                 items = result.get("results", [])
                 total_items += len(items)
-                
+
                 for item in items:
                     if item.get("type") == "coins":
-                        coin_total += item['quantity']
+                        coin_total += item["quantity"]
                     else:
-                        item_name = item['name']
-                        rarity = item.get('rarity', 1)
-                        
+                        item_name = item["name"]
+                        rarity = item.get("rarity", 1)
+
                         # 统计物品数量
                         if item_name in item_counts:
                             item_counts[item_name] += 1
                         else:
                             item_counts[item_name] = 1
-                        
+
                         # 统计稀有度
                         if rarity in rarity_counts:
                             rarity_counts[rarity] += 1
@@ -200,19 +204,21 @@ async def multi_ten_gacha(self: "FishingPlugin", event: AstrMessageEvent, pool_i
                             # 超过10星的物品归类到10星
                             rarity_counts[10] += 1
             else:
-                yield event.plain_result(f"❌ 第{i+1}次十连抽卡失败：{result['message']}")
+                yield event.plain_result(
+                    f"❌ 第{i + 1}次十连抽卡失败：{result['message']}"
+                )
                 return
         else:
-            yield event.plain_result(f"❌ 第{i+1}次十连抽卡出错！")
+            yield event.plain_result(f"❌ 第{i + 1}次十连抽卡出错！")
             return
-    
+
     # 生成合并统计报告
     message = f"🎉 {times}次十连抽卡完成！共获得 {total_items} 件物品：\n\n"
-    
+
     # 消耗统计
-    message += f"【💰 消耗统计】\n"
+    message += "【💰 消耗统计】\n"
     message += f"消耗{cost_type}：{total_cost:,}{cost_unit}\n\n"
-    
+
     # 稀有度统计
     message += "【📊 稀有度统计】\n"
     for rarity in [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]:  # 从高到低显示
@@ -220,11 +226,11 @@ async def multi_ten_gacha(self: "FishingPlugin", event: AstrMessageEvent, pool_i
         if count > 0:
             stars = "⭐" * rarity
             message += f"{stars} {count} 件\n"
-    
+
     # 金币统计
     if coin_total > 0:
         message += f"\n💰 金币总计：{coin_total}\n"
-    
+
     # 物品统计（按稀有度排序）
     if item_counts:
         message += "\n【🎁 物品详情】\n"
@@ -232,7 +238,7 @@ async def multi_ten_gacha(self: "FishingPlugin", event: AstrMessageEvent, pool_i
         sorted_items = sorted(item_counts.items())
         for item_name, count in sorted_items:
             message += f"{item_name} × {count}\n"
-    
+
     yield event.plain_result(message)
 
 
@@ -383,7 +389,7 @@ async def start_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent):
     if len(args) < 2:
         config = self.game_mechanics_service.WHEEL_OF_FATE_CONFIG
         min_fee = config.get("min_entry_fee", 500)
-        max_fee = config.get("max_entry_fee", 50000)
+        max_fee = config.get("max_entry_fee", 9999999)
         timeout = config.get("timeout_seconds", 60)
         help_message = "--- 🎲 命运之轮 玩法说明 ---\n\n"
         help_message += "这是一个挑战勇气与运气的游戏！你将面临连续的抉择，幸存得越久，奖励越丰厚，但失败将让你失去一切。\n\n"
@@ -405,12 +411,15 @@ async def start_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent):
 
     entry_fee = int(entry_fee_str)
     result = self.game_mechanics_service.start_wheel_of_fate(user_id, entry_fee)
-    
+
     if result and result.get("message"):
         user = self.user_repo.get_by_id(user_id)
         user_nickname = user.nickname if user and user.nickname else user_id
-        formatted_message = result["message"].replace(f"[CQ:at,qq={user_id}]", f"@{user_nickname}")
+        formatted_message = result["message"].replace(
+            f"[CQ:at,qq={user_id}]", f"@{user_nickname}"
+        )
         yield event.plain_result(formatted_message)
+
 
 async def continue_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent):
     """处理命运之轮的“继续”指令"""
@@ -420,8 +429,11 @@ async def continue_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent)
     if result and result.get("message"):
         user = self.user_repo.get_by_id(user_id)
         user_nickname = user.nickname if user and user.nickname else user_id
-        formatted_message = result["message"].replace(f"[CQ:at,qq={user_id}]", f"@{user_nickname}")
+        formatted_message = result["message"].replace(
+            f"[CQ:at,qq={user_id}]", f"@{user_nickname}"
+        )
         yield event.plain_result(formatted_message)
+
 
 async def stop_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent):
     """处理命运之轮的“放弃”指令"""
@@ -431,8 +443,11 @@ async def stop_wheel_of_fate(self: "FishingPlugin", event: AstrMessageEvent):
     if result and result.get("message"):
         user = self.user_repo.get_by_id(user_id)
         user_nickname = user.nickname if user and user.nickname else user_id
-        formatted_message = result["message"].replace(f"[CQ:at,qq={user_id}]", f"@{user_nickname}")
+        formatted_message = result["message"].replace(
+            f"[CQ:at,qq={user_id}]", f"@{user_nickname}"
+        )
         yield event.plain_result(formatted_message)
+
 
 async def sicbo(self: "FishingPlugin", event: AstrMessageEvent):
     """处理骰宝游戏指令"""
@@ -462,7 +477,7 @@ async def sicbo(self: "FishingPlugin", event: AstrMessageEvent):
     if not amount_str.isdigit():
         yield event.plain_result("❌ 押注金额必须是纯数字！")
         return
-    
+
     amount = int(amount_str)
 
     # 调用核心服务逻辑
@@ -473,23 +488,23 @@ async def sicbo(self: "FishingPlugin", event: AstrMessageEvent):
         yield event.plain_result(result["message"])
         return
 
-    dice_emojis = {1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅'}
+    dice_emojis = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
     dice_str = " ".join([dice_emojis.get(d, str(d)) for d in result["dice"]])
-    
+
     message = f"🎲 开奖结果: {dice_str}  (总点数: {result['total']})\n"
-    
+
     if result["is_triple"]:
-        message += f"🐅 开出豹子！庄家通吃！\n"
+        message += "🐅 开出豹子！庄家通吃！\n"
     else:
         message += f"🎯 判定结果为: {result['result_type']}\n"
 
     if result["win"]:
-        message += f"🎉 恭喜你，猜中了！\n"
+        message += "🎉 恭喜你，猜中了！\n"
         message += f"💰 你赢得了 {result['profit']:,} 金币！"
     else:
-        message += f"😔 很遗憾，没猜中。\n"
+        message += "😔 很遗憾，没猜中。\n"
         message += f"💸 你失去了 {abs(result['profit']):,} 金币。"
 
     message += f"\n余额: {result['new_balance']:,} 金币"
-    
+
     yield event.plain_result(message)
