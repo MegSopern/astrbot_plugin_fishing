@@ -1,6 +1,8 @@
-from astrbot.api.event import filter, AstrMessageEvent
-from ..utils import format_rarity_display, parse_target_user_id, parse_amount
 from typing import TYPE_CHECKING
+
+from astrbot.api.event import AstrMessageEvent, filter
+
+from ..utils import format_rarity_display, parse_amount, parse_target_user_id
 
 if TYPE_CHECKING:
     from ..main import FishingPlugin
@@ -60,9 +62,7 @@ async def sell_by_rarity(plugin: "FishingPlugin", event: AstrMessageEvent):
         # 根据解析出的稀有度数量，调用不同的服务
         if len(rarities) == 1:
             # 只有一个稀有度，调用单稀有度出售方法
-            result = plugin.inventory_service.sell_fish_by_rarity(
-                user_id, rarities[0]
-            )
+            result = plugin.inventory_service.sell_fish_by_rarity(user_id, rarities[0])
         else:
             # 有多个稀有度，调用多稀有度出售方法
             result = plugin.inventory_service.sell_fish_by_rarities(user_id, rarities)
@@ -154,7 +154,7 @@ async def shop(plugin: "FishingPlugin", event: AstrMessageEvent):
         return
     detail = plugin.shop_service.get_shop_details(int(shop_id))
     if not detail.get("success"):
-        yield event.plain_result(f"❌ {detail.get('message','查询失败')}")
+        yield event.plain_result(f"❌ {detail.get('message', '查询失败')}")
         return
     shop = detail["shop"]
     items = detail.get("items", [])
@@ -245,7 +245,11 @@ async def shop(plugin: "FishingPlugin", event: AstrMessageEvent):
                         item_name = item_template.name.lower()
                         if "沙漏" in item_name or "时运" in item_name:
                             item_emoji = "⏳"
-                        elif "令牌" in item_name or "通行证" in item_name:
+                        elif (
+                            "令牌" in item_name
+                            or "通行证" in item_name
+                            or "钥匙" in item_name
+                        ):
                             item_emoji = "🎫"
                         elif "护符" in item_name or "神佑" in item_name:
                             item_emoji = "🛡️"
@@ -373,7 +377,7 @@ async def shop(plugin: "FishingPlugin", event: AstrMessageEvent):
         stock_str = (
             "无限"
             if item.get("stock_total") is None
-            else f"{item.get('stock_sold',0)}/{item.get('stock_total')}"
+            else f"{item.get('stock_sold', 0)}/{item.get('stock_total')}"
         )
 
         # 获取限购信息
@@ -513,7 +517,9 @@ async def buy_in_shop(plugin: "FishingPlugin", event: AstrMessageEvent):
     user_id = plugin._get_effective_user_id(event)
     args = event.message_str.split(" ")
     if len(args) < 3:
-        yield event.plain_result("❌ 用法：商店购买 商店ID 商品ID [数量]\n💡 支持中文数字，如：商店购买 1 2 五")
+        yield event.plain_result(
+            "❌ 用法：商店购买 商店ID 商品ID [数量]\n💡 支持中文数字，如：商店购买 1 2 五"
+        )
         return
     shop_id, item_id = args[1], args[2]
     if not shop_id.isdigit() or not item_id.isdigit():
@@ -528,7 +534,9 @@ async def buy_in_shop(plugin: "FishingPlugin", event: AstrMessageEvent):
                 yield event.plain_result("❌ 数量必须是正整数")
                 return
         except Exception as e:
-            yield event.plain_result(f"❌ 无法解析数量：{str(e)}。示例：1 或 五 或 一千")
+            yield event.plain_result(
+                f"❌ 无法解析数量：{str(e)}。示例：1 或 五 或 一千"
+            )
             return
     result = plugin.shop_service.purchase_item(user_id, int(item_id), qty)
     if result.get("success"):
@@ -588,9 +596,13 @@ async def market(plugin: "FishingPlugin", event: AstrMessageEvent):
 
             # 为鱼类添加品质显示
             quality_str = ""
-            if item.item_type == "fish" and hasattr(item, "quality_level") and item.quality_level == 1:
+            if (
+                item.item_type == "fish"
+                and hasattr(item, "quality_level")
+                and item.quality_level == 1
+            ):
                 quality_str = " ✨高品质"
-            
+
             msg += f" - {item.item_name}{quality_str}{refine_level_str}{quantity_text} (ID: {display_code}) - 价格: {item.price} 金币\n"
             msg += f" - 售卖人： {seller_display}"
 
@@ -604,7 +616,7 @@ async def market(plugin: "FishingPlugin", event: AstrMessageEvent):
 
                 time_left = item.expires_at - datetime.now()
                 if time_left.total_seconds() <= 0:
-                    msg += f"\n - 状态: 💀 已腐败"
+                    msg += "\n - 状态: 💀 已腐败"
                 elif time_left.total_seconds() <= 86400:  # 24小时内
                     hours = int(time_left.total_seconds() // 3600)
                     minutes = int((time_left.total_seconds() % 3600) // 60)
@@ -713,7 +725,9 @@ async def list_any(
             yield event.plain_result("❌ 上架价格必须是正整数，请检查后重试。")
             return
     except Exception as e:
-        yield event.plain_result(f"❌ 无法解析价格：{str(e)}。示例：1000 或 1万 或 一千")
+        yield event.plain_result(
+            f"❌ 无法解析价格：{str(e)}。示例：1000 或 1万 或 一千"
+        )
         return
 
     # 检查是否为数字ID（旧格式）
@@ -781,7 +795,9 @@ async def list_any(
             else:
                 fish_id = int(token[1:])  # 去掉F前缀
         except Exception:
-            yield event.plain_result("❌ 无效的鱼类ID，请检查后重试。\n💡 支持格式：F3（普通品质）、F3H（✨高品质）")
+            yield event.plain_result(
+                "❌ 无效的鱼类ID，请检查后重试。\n💡 支持格式：F3（普通品质）、F3H（✨高品质）"
+            )
             return
         result = plugin.market_service.put_item_on_sale(
             user_id,
@@ -995,7 +1011,7 @@ def _parse_market_code(code: str, market_service=None) -> int:
                     raise ValueError(f"未找到鱼竿ID {code} 对应的市场商品")
             else:
                 raise ValueError("无法解析鱼竿ID，请稍后重试")
-        except ValueError as e:
+        except ValueError:
             raise ValueError(f"无效的鱼竿ID: {code}")
     elif code.startswith("A") and len(code) > 1:
         # A开头的ID，需要根据实例ID查找市场ID
@@ -1011,7 +1027,7 @@ def _parse_market_code(code: str, market_service=None) -> int:
                     raise ValueError(f"未找到饰品ID {code} 对应的市场商品")
             else:
                 raise ValueError("无法解析饰品ID，请稍后重试")
-        except ValueError as e:
+        except ValueError:
             raise ValueError(f"无效的饰品ID: {code}")
     elif code.startswith("C") and len(code) > 1:
         # C开头的ID，需要根据实例ID查找市场ID
@@ -1027,7 +1043,7 @@ def _parse_market_code(code: str, market_service=None) -> int:
                     raise ValueError(f"未找到大宗商品ID {code} 对应的市场商品")
             else:
                 raise ValueError("无法解析大宗商品ID，请稍后重试")
-        except ValueError as e:
+        except ValueError:
             raise ValueError(f"无效的大宗商品ID: {code}")
     else:
         raise ValueError(

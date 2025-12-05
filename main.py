@@ -1,65 +1,67 @@
-import os
 import asyncio
+import os
 
-from astrbot.api import logger, AstrBotConfig
-from astrbot.api.event import AstrMessageEvent, filter, MessageChain
+from astrbot.api import AstrBotConfig, logger
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.permission import PermissionType
+
+from .core.database.migration import run_migrations
+from .core.repositories.sqlite_achievement_repo import SqliteAchievementRepository
+from .core.repositories.sqlite_exchange_repo import (
+    SqliteExchangeRepository,  # 新增交易所Repo
+)
+from .core.repositories.sqlite_gacha_repo import SqliteGachaRepository
+from .core.repositories.sqlite_inventory_repo import SqliteInventoryRepository
+from .core.repositories.sqlite_item_template_repo import SqliteItemTemplateRepository
+from .core.repositories.sqlite_log_repo import SqliteLogRepository
+from .core.repositories.sqlite_market_repo import SqliteMarketRepository
+from .core.repositories.sqlite_red_packet_repo import (
+    SqliteRedPacketRepository,  # 新增红包Repo
+)
+from .core.repositories.sqlite_shop_repo import SqliteShopRepository
+from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
 
 # ==========================================================
 # 导入所有仓储层 & 服务层（与旧版保持一致的精确导入）
 # ==========================================================
 from .core.repositories.sqlite_user_repo import SqliteUserRepository
-from .core.repositories.sqlite_item_template_repo import SqliteItemTemplateRepository
-from .core.repositories.sqlite_inventory_repo import SqliteInventoryRepository
-from .core.repositories.sqlite_gacha_repo import SqliteGachaRepository
-from .core.repositories.sqlite_market_repo import SqliteMarketRepository
-from .core.repositories.sqlite_shop_repo import SqliteShopRepository
-from .core.repositories.sqlite_log_repo import SqliteLogRepository
-from .core.repositories.sqlite_achievement_repo import SqliteAchievementRepository
-from .core.repositories.sqlite_user_buff_repo import SqliteUserBuffRepository
-from .core.repositories.sqlite_exchange_repo import SqliteExchangeRepository # 新增交易所Repo
-from .core.repositories.sqlite_red_packet_repo import SqliteRedPacketRepository # 新增红包Repo
-
-from .core.services.data_setup_service import DataSetupService
-from .core.services.item_template_service import ItemTemplateService
-from .core.services.user_service import UserService
-from .core.services.fishing_service import FishingService
-from .core.services.inventory_service import InventoryService
-from .core.services.shop_service import ShopService
-from .core.services.market_service import MarketService
-from .core.services.gacha_service import GachaService
 from .core.services.achievement_service import AchievementService
-from .core.services.game_mechanics_service import GameMechanicsService
+from .core.services.data_setup_service import DataSetupService
 from .core.services.effect_manager import EffectManager
+from .core.services.exchange_service import ExchangeService  # 新增交易所Service
+from .core.services.fishing_service import FishingService
 from .core.services.fishing_zone_service import FishingZoneService
-from .core.services.exchange_service import ExchangeService # 新增交易所Service
-from .core.services.sicbo_service import SicboService # 新增骰宝Service
-from .core.services.red_packet_service import RedPacketService # 新增红包Service
-
-from .core.database.migration import run_migrations
+from .core.services.gacha_service import GachaService
+from .core.services.game_mechanics_service import GameMechanicsService
+from .core.services.inventory_service import InventoryService
+from .core.services.item_template_service import ItemTemplateService
+from .core.services.market_service import MarketService
+from .core.services.red_packet_service import RedPacketService  # 新增红包Service
+from .core.services.shop_service import ShopService
+from .core.services.sicbo_service import SicboService  # 新增骰宝Service
+from .core.services.user_service import UserService
 
 # ==========================================================
 # 导入所有指令函数
 # ==========================================================
 from .handlers import (
-    admin_handlers, 
-    common_handlers, 
-    inventory_handlers, 
-    fishing_handlers, 
-    market_handlers, 
-    social_handlers, 
-    gacha_handlers, 
-    aquarium_handlers, 
-    sicbo_handlers,
+    admin_handlers,
+    aquarium_handlers,
+    common_handlers,
+    fishing_handlers,
+    gacha_handlers,
+    inventory_handlers,
+    market_handlers,
     red_packet_handlers,
+    sicbo_handlers,
+    social_handlers,
 )
-from .handlers.fishing_handlers import FishingHandlers
 from .handlers.exchange_handlers import ExchangeHandlers
+from .handlers.fishing_handlers import FishingHandlers
 
 
 class FishingPlugin(Star):
-
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
 
@@ -74,7 +76,7 @@ class FishingPlugin(Star):
         self.min_rate = tax_config.get("min_rate", 0.001)  # 最小税率
         self.area2num = config.get("area2num", 2000)
         self.area3num = config.get("area3num", 500)
-        
+
         # 插件ID
         self.plugin_id = "astrbot_plugin_fishing"
 
@@ -84,21 +86,23 @@ class FishingPlugin(Star):
             self.data_dir = self.context.get_data_dir(self.plugin_id)
         except (AttributeError, TypeError):
             # 如果方法不存在或调用失败，则回退到旧的硬编码路径
-            logger.warning(f"无法使用 self.context.get_data_dir('{self.plugin_id}'), 将回退到旧的 'data/' 目录。")
+            logger.warning(
+                f"无法使用 self.context.get_data_dir('{self.plugin_id}'), 将回退到旧的 'data/' 目录。"
+            )
             self.data_dir = "data"
-        
+
         self.tmp_dir = os.path.join(self.data_dir, "tmp")
         os.makedirs(self.tmp_dir, exist_ok=True)
 
         db_path = os.path.join(self.data_dir, "fish.db")
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        
+
         # --- 1.2. 配置数据完整性检查注释 ---
         # 以下配置项必须在此处从 AstrBotConfig 中提取并放入 game_config，
         # 以确保所有服务在接收 game_config 时能够正确读取配置值
-        # 
+        #
         # 配置数据流：_conf_schema.json → AstrBotConfig (config) → game_config → 各个服务
-        # 
+        #
         # 从框架读取嵌套配置
         # 注意：框架会自动解析 _conf_schema.json 中的嵌套对象
         fishing_config = config.get("fishing", {})
@@ -108,7 +112,7 @@ class FishingPlugin(Star):
         user_config = config.get("user", {})
         market_config = config.get("market", {})
         sell_prices_config = config.get("sell_prices", {})
-        
+
         # 直接从框架获取 exchange 配置（不重建）
         exchange_config = config.get("exchange", {})
         if not exchange_config:
@@ -123,55 +127,67 @@ class FishingPlugin(Star):
                 "max_change_rate": 0.2,
                 "min_price": 1,
                 "max_price": 1000000,
-                "sentiment_weights": {"panic": 0.1, "pessimistic": 0.2, "neutral": 0.4, "optimistic": 0.2, "euphoric": 0.1},
+                "sentiment_weights": {
+                    "panic": 0.1,
+                    "pessimistic": 0.2,
+                    "neutral": 0.4,
+                    "optimistic": 0.2,
+                    "euphoric": 0.1,
+                },
                 "merge_window_minutes": 30,
-                "initial_prices": {"dried_fish": 6000, "fish_roe": 12000, "fish_oil": 10000}
+                "initial_prices": {
+                    "dried_fish": 6000,
+                    "fish_roe": 12000,
+                    "fish_oil": 10000,
+                },
             }
         else:
-            logger.info(f"[CONFIG] Exchange capacity loaded: {exchange_config.get('capacity', 'NOT SET')}")
-        
+            logger.info(
+                f"[CONFIG] Exchange capacity loaded: {exchange_config.get('capacity', 'NOT SET')}"
+            )
+
         self.game_config = {
             "fishing": {
-                "cost": config.get("fish_cost", 10), 
-                "cooldown_seconds": fishing_config.get("cooldown_seconds", 180)
+                "cost": config.get("fish_cost", 10),
+                "cooldown_seconds": fishing_config.get("cooldown_seconds", 180),
             },
-            "quality_bonus_max_chance": fishing_config.get("quality_bonus_max_chance", 0.35),
-            "steal": {
-                "cooldown_seconds": steal_config.get("cooldown_seconds", 14400)
-            },
+            "quality_bonus_max_chance": fishing_config.get(
+                "quality_bonus_max_chance", 0.35
+            ),
+            "steal": {"cooldown_seconds": steal_config.get("cooldown_seconds", 14400)},
             "electric_fish": {
                 "enabled": electric_fish_config.get("enabled", True),
                 "cooldown_seconds": electric_fish_config.get("cooldown_seconds", 7200),
                 "base_success_rate": electric_fish_config.get("base_success_rate", 0.6),
-                "failure_penalty_max_rate": electric_fish_config.get("failure_penalty_max_rate", 0.5)
+                "failure_penalty_max_rate": electric_fish_config.get(
+                    "failure_penalty_max_rate", 0.5
+                ),
             },
             "wipe_bomb": {
                 "max_attempts_per_day": game_global_config.get("wipe_bomb_attempts", 3)
             },
-            "wheel_of_fate_daily_limit": game_global_config.get("wheel_of_fate_daily_limit", 3),
+            "wheel_of_fate_daily_limit": game_global_config.get(
+                "wheel_of_fate_daily_limit", 3
+            ),
             "daily_reset_hour": game_global_config.get("daily_reset_hour", 0),
-            "user": {
-                "initial_coins": user_config.get("initial_coins", 200)
-            },
-            "market": {
-                "listing_tax_rate": market_config.get("listing_tax_rate", 0.05)
-            },
+            "user": {"initial_coins": user_config.get("initial_coins", 200)},
+            "market": {"listing_tax_rate": market_config.get("listing_tax_rate", 0.05)},
             "tax": {
                 "is_tax": self.is_tax,
                 "threshold": self.threshold,
                 "step_coins": self.step_coins,
                 "step_rate": self.step_rate,
                 "min_rate": self.min_rate,
-                "max_rate": self.max_rate
+                "max_rate": self.max_rate,
             },
             "pond_upgrades": [
-                { "from": 480, "to": 999, "cost": 50000 },
-                { "from": 999, "to": 9999, "cost": 500000 },
-                { "from": 9999, "to": 99999, "cost": 50000000 },
-                { "from": 99999, "to": 999999, "cost": 5000000000 },
+                {"from": 480, "to": 999, "cost": 50000},
+                {"from": 999, "to": 9999, "cost": 500000},
+                {"from": 9999, "to": 99999, "cost": 50000000},
+                {"from": 99999, "to": 999999, "cost": 5000000000},
             ],
             "sell_prices": {
-                "rod": { 
+                "rod": {
                     "1": sell_prices_config.get("by_rarity_1", 100),
                     "2": sell_prices_config.get("by_rarity_2", 500),
                     "3": sell_prices_config.get("by_rarity_3", 2000),
@@ -181,9 +197,9 @@ class FishingPlugin(Star):
                     "7": sell_prices_config.get("by_rarity_7", 50000),
                     "8": sell_prices_config.get("by_rarity_8", 100000),
                     "9": sell_prices_config.get("by_rarity_9", 200000),
-                    "10": sell_prices_config.get("by_rarity_10", 500000)
+                    "10": sell_prices_config.get("by_rarity_10", 500000),
                 },
-                "accessory": { 
+                "accessory": {
                     "1": sell_prices_config.get("by_rarity_1", 100),
                     "2": sell_prices_config.get("by_rarity_2", 500),
                     "3": sell_prices_config.get("by_rarity_3", 2000),
@@ -193,19 +209,29 @@ class FishingPlugin(Star):
                     "7": sell_prices_config.get("by_rarity_7", 50000),
                     "8": sell_prices_config.get("by_rarity_8", 100000),
                     "9": sell_prices_config.get("by_rarity_9", 200000),
-                    "10": sell_prices_config.get("by_rarity_10", 500000)
+                    "10": sell_prices_config.get("by_rarity_10", 500000),
                 },
                 "refine_multiplier": {
-                    "1": 1.0, "2": 1.6, "3": 3.0, "4": 6.0, "5": 12.0,
-                    "6": 25.0, "7": 55.0, "8": 125.0, "9": 280.0, "10": 660.0
-                }
+                    "1": 1.0,
+                    "2": 1.6,
+                    "3": 3.0,
+                    "4": 6.0,
+                    "5": 12.0,
+                    "6": 25.0,
+                    "7": 55.0,
+                    "8": 125.0,
+                    "9": 280.0,
+                    "10": 660.0,
+                },
             },
-            "exchange": exchange_config  # 直接使用框架的配置
+            "exchange": exchange_config,  # 直接使用框架的配置
         }
-        
+
         # 初始化数据库模式
         plugin_root_dir = os.path.dirname(__file__)
-        migrations_path = os.path.join(plugin_root_dir, "core", "database", "migrations")
+        migrations_path = os.path.join(
+            plugin_root_dir, "core", "database", "migrations"
+        )
         run_migrations(db_path, migrations_path)
 
         # --- 2. 组合根：实例化所有仓储层 ---
@@ -222,15 +248,37 @@ class FishingPlugin(Star):
 
         # --- 3. 组合根：实例化所有服务层，并注入依赖 ---
         # 3.1 核心服务必须在效果管理器之前实例化，以解决依赖问题
-        self.fishing_zone_service = FishingZoneService(self.item_template_repo, self.inventory_repo, self.game_config)
-        self.game_mechanics_service = GameMechanicsService(self.user_repo, self.log_repo, self.inventory_repo,
-                                                          self.item_template_repo, self.buff_repo, self.game_config)
+        self.fishing_zone_service = FishingZoneService(
+            self.item_template_repo, self.inventory_repo, self.game_config
+        )
+        self.game_mechanics_service = GameMechanicsService(
+            self.user_repo,
+            self.log_repo,
+            self.inventory_repo,
+            self.item_template_repo,
+            self.buff_repo,
+            self.game_config,
+        )
 
         # 3.3 实例化其他核心服务
-        self.gacha_service = GachaService(self.gacha_repo, self.user_repo, self.inventory_repo, self.item_template_repo,
-                                         self.log_repo, self.achievement_repo)
+        self.gacha_service = GachaService(
+            self.gacha_repo,
+            self.user_repo,
+            self.inventory_repo,
+            self.item_template_repo,
+            self.log_repo,
+            self.achievement_repo,
+        )
         # UserService 依赖 GachaService，因此在 GachaService 之后实例化
-        self.user_service = UserService(self.user_repo, self.log_repo, self.inventory_repo, self.item_template_repo, self.gacha_service, self.game_config, self.achievement_repo)
+        self.user_service = UserService(
+            self.user_repo,
+            self.log_repo,
+            self.inventory_repo,
+            self.item_template_repo,
+            self.gacha_service,
+            self.game_config,
+            self.achievement_repo,
+        )
         self.inventory_service = InventoryService(
             self.inventory_repo,
             self.user_repo,
@@ -239,12 +287,30 @@ class FishingPlugin(Star):
             self.game_mechanics_service,
             self.game_config,
         )
-        self.shop_service = ShopService(self.item_template_repo, self.inventory_repo, self.user_repo, self.shop_repo, self.game_config)
+        self.shop_service = ShopService(
+            self.item_template_repo,
+            self.inventory_repo,
+            self.user_repo,
+            self.shop_repo,
+            self.game_config,
+        )
         # MarketService 依赖 exchange_repo
-        self.market_service = MarketService(self.market_repo, self.inventory_repo, self.user_repo, self.log_repo,
-                                           self.item_template_repo, self.exchange_repo, self.game_config)
-        self.achievement_service = AchievementService(self.achievement_repo, self.user_repo, self.inventory_repo,
-                                                     self.item_template_repo, self.log_repo)
+        self.market_service = MarketService(
+            self.market_repo,
+            self.inventory_repo,
+            self.user_repo,
+            self.log_repo,
+            self.item_template_repo,
+            self.exchange_repo,
+            self.game_config,
+        )
+        self.achievement_service = AchievementService(
+            self.achievement_repo,
+            self.user_repo,
+            self.inventory_repo,
+            self.item_template_repo,
+            self.log_repo,
+        )
         self.fishing_service = FishingService(
             self.user_repo,
             self.inventory_repo,
@@ -254,41 +320,47 @@ class FishingPlugin(Star):
             self.fishing_zone_service,
             self.game_config,
         )
-        
+
         # 导入并初始化水族箱服务
         from .core.services.aquarium_service import AquariumService
+
         self.aquarium_service = AquariumService(
-            self.inventory_repo,
-            self.user_repo,
-            self.item_template_repo
+            self.inventory_repo, self.user_repo, self.item_template_repo
         )
-        
+
         # 初始化交易所服务
-        self.exchange_service = ExchangeService(self.user_repo, self.exchange_repo, self.game_config, self.log_repo, self.market_service)
-        
+        self.exchange_service = ExchangeService(
+            self.user_repo,
+            self.exchange_repo,
+            self.game_config,
+            self.log_repo,
+            self.market_service,
+        )
+
         # 初始化骰宝服务
-        self.sicbo_service = SicboService(self.user_repo, self.log_repo, self.game_config)
-        
+        self.sicbo_service = SicboService(
+            self.user_repo, self.log_repo, self.game_config
+        )
+
         # 设置骰宝服务的消息发送回调
         self.sicbo_service.set_message_callback(self._send_sicbo_announcement)
-        
+
         # 初始化红包服务
         self.red_packet_repo = SqliteRedPacketRepository(db_path)
         self.red_packet_service = RedPacketService(self.red_packet_repo, self.user_repo)
-        
+
         # 初始化交易所处理器
         self.exchange_handlers = ExchangeHandlers(self)
-        
-        #初始化钓鱼处理器
-        self.fishing_handlers = FishingHandlers(self)
 
+        # 初始化钓鱼处理器
+        self.fishing_handlers = FishingHandlers(self)
 
         # 3.2 实例化效果管理器并自动注册所有效果（需要在fishing_service之后）
         self.effect_manager = EffectManager()
         self.effect_manager.discover_and_register(
             effects_package_path="data.plugins.astrbot_plugin_fishing.core.services.item_effects",
             dependencies={
-                "user_repo": self.user_repo, 
+                "user_repo": self.user_repo,
                 "buff_repo": self.buff_repo,
                 "game_mechanics_service": self.game_mechanics_service,
                 "fishing_service": self.fishing_service,
@@ -296,21 +368,25 @@ class FishingPlugin(Star):
                 "game_config": self.game_config,
             },
         )
-        
+
         # 设置inventory_service的effect_manager
         self.inventory_service.effect_manager = self.effect_manager
 
-        self.item_template_service = ItemTemplateService(self.item_template_repo, self.gacha_repo)
+        self.item_template_service = ItemTemplateService(
+            self.item_template_repo, self.gacha_repo
+        )
 
         # --- 4. 启动后台任务 ---
         self.fishing_service.start_auto_fishing_task()
         if self.is_tax:
             self.fishing_service.start_daily_tax_task()  # 启动独立的税收线程
         self.achievement_service.start_achievement_check_task()
-        self.exchange_service.start_daily_price_update_task() # 启动交易所后台任务
-        
+        self.exchange_service.start_daily_price_update_task()  # 启动交易所后台任务
+
         # 启动红包清理任务
-        self._red_packet_cleanup_task = asyncio.create_task(self._red_packet_cleanup_scheduler())
+        self._red_packet_cleanup_task = asyncio.create_task(
+            self._red_packet_cleanup_scheduler()
+        )
 
         # --- 5. 初始化核心游戏数据 ---
         data_setup_service = DataSetupService(
@@ -333,7 +409,9 @@ class FishingPlugin(Star):
         webui_config = config.get("webui", {})
         self.secret_key = webui_config.get("secret_key")
         if not self.secret_key:
-            logger.error("安全警告：Web后台管理的'secret_key'未在配置中设置！强烈建议您设置一个长且随机的字符串以保证安全。")
+            logger.error(
+                "安全警告：Web后台管理的'secret_key'未在配置中设置！强烈建议您设置一个长且随机的字符串以保证安全。"
+            )
             self.secret_key = None
         self.port = webui_config.get("port", 7777)
 
@@ -349,10 +427,10 @@ class FishingPlugin(Star):
                     if self.sicbo_service.is_image_mode():
                         # 图片模式：生成骰宝结果图片
                         from .draw.sicbo import draw_sicbo_result, save_image_to_temp
-                        
+
                         dice = result_data.get("dice", [1, 1, 1])
                         settlement = result_data.get("settlement", [])
-                        
+
                         # 按用户统计总盈亏
                         user_profits = {}
                         for info in settlement:
@@ -361,32 +439,41 @@ class FishingPlugin(Star):
                             if user_id not in user_profits:
                                 user_profits[user_id] = 0
                             user_profits[user_id] += profit
-                        
+
                         # 转换为图片所需的格式
                         player_results = []
                         for user_id, total_profit in user_profits.items():
                             user = self.user_repo.get_by_id(user_id)
-                            username = user.nickname if user and user.nickname else "未知玩家"
-                            player_results.append({
-                                "username": username,
-                                "profit": total_profit
-                            })
-                        
+                            username = (
+                                user.nickname if user and user.nickname else "未知玩家"
+                            )
+                            player_results.append(
+                                {"username": username, "profit": total_profit}
+                            )
+
                         # 生成图片
-                        image = draw_sicbo_result(dice[0], dice[1], dice[2], [], player_results)
-                        image_path = save_image_to_temp(image, "sicbo_result", self.data_dir)
-                        
+                        image = draw_sicbo_result(
+                            dice[0], dice[1], dice[2], [], player_results
+                        )
+                        image_path = save_image_to_temp(
+                            image, "sicbo_result", self.data_dir
+                        )
+
                         # 发送图片消息
-                        success = await self._send_initiative_image(session_info, image_path)
+                        success = await self._send_initiative_image(
+                            session_info, image_path
+                        )
                         if success:
-                            logger.info(f"🎲 骰宝结果公告图片已主动发送")
+                            logger.info("🎲 骰宝结果公告图片已主动发送")
                             return
                     else:
                         # 文本模式：发送文本消息
                         message = result_data.get("message", "开奖失败")
-                        success = await self._send_initiative_message(session_info, message)
+                        success = await self._send_initiative_message(
+                            session_info, message
+                        )
                         if success:
-                            logger.info(f"🎲 骰宝结果公告文本已主动发送")
+                            logger.info("🎲 骰宝结果公告文本已主动发送")
                             return
                 except Exception as e:
                     logger.error(f"发送骰宝结果失败: {e}")
@@ -394,11 +481,11 @@ class FishingPlugin(Star):
                     message = result_data.get("message", "开奖失败")
                     success = await self._send_initiative_message(session_info, message)
                     if success:
-                        logger.info(f"🎲 骰宝结果公告文本已主动发送（回退）")
+                        logger.info("🎲 骰宝结果公告文本已主动发送（回退）")
                         return
-            
+
             logger.warning("无法发送骰宝公告：缺少会话信息")
-            
+
         except Exception as e:
             logger.error(f"发送骰宝公告失败: {e}")
 
@@ -406,20 +493,20 @@ class FishingPlugin(Star):
         """主动发送图片消息到指定会话"""
         try:
             # 获取保存的 unified_msg_origin
-            umo = session_info.get('unified_msg_origin')
-            
+            umo = session_info.get("unified_msg_origin")
+
             if not umo:
                 logger.error("缺少 unified_msg_origin，无法发送主动图片消息")
                 return False
-            
+
             # 构造图片消息链
             message_chain = MessageChain().file_image(image_path)
-            
+
             # 使用 context.send_message 发送消息
             await self.context.send_message(umo, message_chain)
             logger.info(f"主动发送图片消息成功: {image_path}")
             return True
-                
+
         except Exception as e:
             logger.error(f"主动发送图片消息时发生错误: {e}")
             return False
@@ -428,24 +515,24 @@ class FishingPlugin(Star):
         """主动发送消息到指定会话"""
         try:
             # 获取保存的 unified_msg_origin
-            umo = session_info.get('unified_msg_origin')
-            
+            umo = session_info.get("unified_msg_origin")
+
             if not umo:
                 logger.error("缺少 unified_msg_origin，无法发送主动消息")
                 return False
-            
+
             # 构造消息链
             message_chain = MessageChain().message(message)
-            
+
             # 使用 context.send_message 发送消息
             await self.context.send_message(umo, message_chain)
             logger.info(f"主动发送消息成功: {message[:50]}...")
             return True
-                
+
         except Exception as e:
             logger.error(f"主动发送消息时发生错误: {e}")
             return False
-    
+
     async def _red_packet_cleanup_scheduler(self):
         """红包清理调度器 - 每小时清理一次过期红包"""
         while True:
@@ -479,6 +566,7 @@ class FishingPlugin(Star):
     |_|   |_|___/_| |_|_|_| |_|\\__, |
                                |___/
                                """)
+
     # =========== 基础与核心 ==========
 
     @filter.command("注册")
@@ -502,7 +590,7 @@ class FishingPlugin(Star):
     @filter.command("自动钓鱼")
     async def auto_fish(self, event: AstrMessageEvent):
         """开启或关闭自动钓鱼功能，自动钓鱼会定期帮你钓鱼"""
-        async for r in self.fishing_handlers.auto_fish(event): 
+        async for r in self.fishing_handlers.auto_fish(event):
             yield r
 
     @filter.command("钓鱼记录", alias={"钓鱼日志", "钓鱼历史"})
@@ -511,7 +599,7 @@ class FishingPlugin(Star):
         async for r in common_handlers.fishing_log(self, event):
             yield r
 
-    @filter.command("状态", alias={"我的状态"})
+    @filter.command("我的状态", alias={"钓鱼状态", "我的钓鱼状态"})
     async def state(self, event: AstrMessageEvent):
         """查看你的游戏状态，包括金币、等级、装备等信息"""
         async for r in common_handlers.state(self, event):
@@ -675,7 +763,7 @@ class FishingPlugin(Star):
     @filter.command("鱼类图鉴", alias={"图鉴"})
     async def fish_pokedex(self, event: AstrMessageEvent):
         """查看鱼类图鉴，了解所有可钓到的鱼"""
-        async for r in self.fishing_handlers.fish_pokedex(event): 
+        async for r in self.fishing_handlers.fish_pokedex(event):
             yield r
 
     # =========== 市场与商店 ==========
@@ -704,13 +792,19 @@ class FishingPlugin(Star):
         async for r in market_handlers.sell_by_rarity(self, event):
             yield r
 
-    @filter.command("出售所有鱼竿", alias={"出售全部鱼竿", "卖出所有鱼竿", "卖出全部鱼竿", "清空鱼竿"})
+    @filter.command(
+        "出售所有鱼竿",
+        alias={"出售全部鱼竿", "卖出所有鱼竿", "卖出全部鱼竿", "清空鱼竿"},
+    )
     async def sell_all_rods(self, event: AstrMessageEvent):
         """出售所有未装备且未锁定的鱼竿"""
         async for r in market_handlers.sell_all_rods(self, event):
             yield r
 
-    @filter.command("出售所有饰品", alias={"出售全部饰品", "卖出所有饰品", "卖出全部饰品", "清空饰品"})
+    @filter.command(
+        "出售所有饰品",
+        alias={"出售全部饰品", "卖出所有饰品", "卖出全部饰品", "清空饰品"},
+    )
     async def sell_all_accessories(self, event: AstrMessageEvent):
         """出售所有未装备且未锁定的饰品"""
         async for r in market_handlers.sell_all_accessories(self, event):
@@ -801,7 +895,7 @@ class FishingPlugin(Star):
         """开始命运之轮游戏"""
         async for r in gacha_handlers.start_wheel_of_fate(self, event):
             yield r
-        
+
     @filter.command("继续")
     async def wheel_of_fate_continue(self, event: AstrMessageEvent):
         """在命运之轮游戏中选择继续冒险"""
@@ -851,6 +945,8 @@ class FishingPlugin(Star):
     @filter.command("开庄")
     async def start_sicbo(self, event: AstrMessageEvent):
         """开启骰宝游戏，倒计时120秒供玩家下注"""
+        yield event.plain_result("❌ 骰宝游戏功能已被禁用")
+        return
         async for r in sicbo_handlers.start_sicbo_game(self, event):
             yield r
 
@@ -1077,7 +1173,7 @@ class FishingPlugin(Star):
         """查看你的税收缴纳记录"""
         async for r in social_handlers.tax_record(self, event):
             yield r
-            
+
     # =========== 交易所 ==========
 
     @filter.command("交易所")
@@ -1272,8 +1368,7 @@ class FishingPlugin(Star):
         """验证端口是否实际已激活"""
         try:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", self.port),
-                timeout=1
+                asyncio.open_connection("127.0.0.1", self.port), timeout=1
             )
             writer.close()
             return True
@@ -1286,12 +1381,12 @@ class FishingPlugin(Star):
         self.fishing_service.stop_auto_fishing_task()
         self.fishing_service.stop_daily_tax_task()  # 终止独立的税收线程
         self.achievement_service.stop_achievement_check_task()
-        self.exchange_service.stop_daily_price_update_task() # 终止交易所后台任务
-        
+        self.exchange_service.stop_daily_price_update_task()  # 终止交易所后台任务
+
         # 取消红包清理任务
-        if hasattr(self, '_red_packet_cleanup_task') and self._red_packet_cleanup_task:
+        if hasattr(self, "_red_packet_cleanup_task") and self._red_packet_cleanup_task:
             self._red_packet_cleanup_task.cancel()
-            
+
         if self.web_admin_task:
             self.web_admin_task.cancel()
         logger.info("钓鱼插件已成功终止。")

@@ -1,7 +1,9 @@
 import math
 import os
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from .styles import COLOR_TITLE, COLOR_CMD, COLOR_LINE, COLOR_SHADOW, load_font
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+from .styles import COLOR_CMD, COLOR_LINE, COLOR_SHADOW, COLOR_TITLE, load_font
 
 
 def draw_help_image():
@@ -29,8 +31,9 @@ def draw_help_image():
     shadow_color = COLOR_SHADOW
 
     # 4. 获取文本尺寸的辅助函数（测量版）
-    _measure_img = Image.new('RGB', (10, 10), bg_bot)
+    _measure_img = Image.new("RGB", (10, 10), bg_bot)
     _measure_draw = ImageDraw.Draw(_measure_img)
+
     def measure_text_size(text, font):
         bbox = _measure_draw.textbbox((0, 0), text, font=font)
         return bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -66,22 +69,37 @@ def draw_help_image():
         # 简化阴影效果
         shadow_offset = 3
         # 绘制阴影
-        draw.rounded_rectangle([x0 + shadow_offset, y0 + shadow_offset, x1 + shadow_offset, y1 + shadow_offset],
-                               radius, fill=(220, 220, 220))
+        draw.rounded_rectangle(
+            [
+                x0 + shadow_offset,
+                y0 + shadow_offset,
+                x1 + shadow_offset,
+                y1 + shadow_offset,
+            ],
+            radius,
+            fill=(220, 220, 220),
+        )
         # 白色卡片
-        draw.rounded_rectangle([x0, y0, x1, y1], radius, fill=card_bg, outline=line_color, width=1)
+        draw.rounded_rectangle(
+            [x0, y0, x1, y1], radius, fill=card_bg, outline=line_color, width=1
+        )
 
     # 8. 绘制章节和命令
     def draw_section(title, cmds, y_start, cols=3):
         # 章节标题左对齐
         title_x = 50
-        draw.text((title_x, y_start), title, fill=title_color, font=section_font, anchor="lm")
+        draw.text(
+            (title_x, y_start), title, fill=title_color, font=section_font, anchor="lm"
+        )
         w, h = get_text_size(title, section_font)
 
         # 标题下划线
         underline_y = y_start + h // 2 + 8
-        draw.line([(title_x, underline_y), (title_x + w, underline_y)],
-                  fill=title_color, width=3)
+        draw.line(
+            [(title_x, underline_y), (title_x + w, underline_y)],
+            fill=title_color,
+            width=3,
+        )
 
         y = y_start + h // 2 + 25
 
@@ -104,9 +122,15 @@ def draw_help_image():
             # 命令文本
             draw.text((cx, y0 + 18), cmd, fill=cmd_color, font=cmd_font, anchor="mt")
             # 描述文本 - 支持多行
-            desc_lines = desc.split('\n') if '\n' in desc else [desc]
+            desc_lines = desc.split("\n") if "\n" in desc else [desc]
             for i, line in enumerate(desc_lines):
-                draw.text((cx, y0 + 45 + i * 18), line, fill=(100, 100, 100), font=desc_font, anchor="mt")
+                draw.text(
+                    (cx, y0 + 45 + i * 18),
+                    line,
+                    fill=(100, 100, 100),
+                    font=desc_font,
+                    anchor="mt",
+                )
 
         rows = math.ceil(len(cmds) / cols)
         return y + rows * (card_h + pad) + 35
@@ -124,7 +148,7 @@ def draw_help_image():
     ]
 
     inventory = [
-        ("状态", "查看个人\n详细状态"),
+        ("我的状态", "查看个人\n详细状态"),
         ("背包", "查看我的\n所有物品"),
         ("鱼塘", "查看鱼塘中\n的所有鱼"),
         ("鱼塘容量", "查看当前\n鱼塘容量"),
@@ -275,7 +299,9 @@ def draw_help_image():
 
     # 绘制 Logo 和 标题
     try:
-        logo = Image.open(os.path.join(os.path.dirname(__file__), "resource", "astrbot_logo.jpg"))
+        logo = Image.open(
+            os.path.join(os.path.dirname(__file__), "resource", "astrbot_logo.jpg")
+        )
         logo = replace_white_background(logo, bg_top)
         logo.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
         mask = Image.new("L", logo.size, 0)
@@ -285,14 +311,30 @@ def draw_help_image():
         output.paste(logo, (0, 0))
         output.putalpha(mask)
         image.paste(output, (logo_x, logo_y), output)
-    except Exception as e:
+    except Exception:
         # 如果没有logo文件，绘制一个圆角占位符
-        draw.rounded_rectangle((logo_x, logo_y, logo_x + logo_size, logo_y + logo_size),
-                               20, fill=bg_top, outline=(180, 180, 180), width=2)
-        draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "LOGO",
-                  fill=(120, 120, 120), font=subtitle_font, anchor="mm")
+        draw.rounded_rectangle(
+            (logo_x, logo_y, logo_x + logo_size, logo_y + logo_size),
+            20,
+            fill=bg_top,
+            outline=(180, 180, 180),
+            width=2,
+        )
+        draw.text(
+            (logo_x + logo_size // 2, logo_y + logo_size // 2),
+            "LOGO",
+            fill=(120, 120, 120),
+            font=subtitle_font,
+            anchor="mm",
+        )
 
-    draw.text((width // 2, title_y), "钓鱼游戏帮助", fill=title_color, font=title_font, anchor="mm")
+    draw.text(
+        (width // 2, title_y),
+        "钓鱼游戏帮助",
+        fill=title_color,
+        font=title_font,
+        anchor="mm",
+    )
 
     # 重新基于真实 draw 定义尺寸函数
     def get_text_size(text, font):
@@ -312,8 +354,13 @@ def draw_help_image():
 
     # 添加底部信息
     footer_y = y0 + 20
-    draw.text((width // 2, footer_y), "💡 提示：命令中的 [ID] 表示必填参数，<> 表示可选参数",
-              fill=(120, 120, 120), font=desc_font, anchor="mm")
+    draw.text(
+        (width // 2, footer_y),
+        "💡 提示：命令中的 [ID] 表示必填参数，<> 表示可选参数",
+        fill=(120, 120, 120),
+        font=desc_font,
+        anchor="mm",
+    )
 
     # 11. 保存（高度已自适应，无需再次裁剪）
     final_height = footer_y + 30

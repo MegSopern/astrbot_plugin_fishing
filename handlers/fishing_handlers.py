@@ -1,10 +1,12 @@
-from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api import logger
-from ..core.utils import get_now
-from ..utils import safe_datetime_handler, to_percentage, safe_get_file_path
-from ..draw.pokedex import draw_pokedex
-from astrbot.api.message_components import Image as AstrImage
 from typing import TYPE_CHECKING
+
+from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.message_components import Image as AstrImage
+
+from ..core.utils import get_now
+from ..draw.pokedex import draw_pokedex
+from ..utils import safe_datetime_handler, safe_get_file_path, to_percentage
 
 if TYPE_CHECKING:
     from ..main import FishingPlugin
@@ -21,20 +23,22 @@ def _normalize_now_for(lst_time):
 
 
 def _compute_cooldown_seconds(base_seconds, equipped_accessory):
-    """根据是否装备海洋之心动态计算冷却时间。"""
+    """根据是否装备海洋之心或沧溟钓神印动态计算冷却时间。"""
     if equipped_accessory and equipped_accessory.get("name") == "海洋之心":
         return base_seconds / 2
+    if equipped_accessory and equipped_accessory.get("name") == "沧溟钓神印":
+        return base_seconds / 4
     return base_seconds
 
 
 def _build_fish_message(result, fishing_cost):
     if result["success"]:
-        fish = result['fish']
+        fish = result["fish"]
         # 构建品质显示
         quality_display = ""
-        if fish.get('quality_level') == 1:
+        if fish.get("quality_level") == 1:
             quality_display = " ✨高品质"
-        
+
         message = (
             f"🎣 恭喜你钓到了：{fish['name']}{quality_display}\n"
             f"✨稀有度：{'★' * fish['rarity']} \n"
@@ -87,7 +91,9 @@ class FishingHandlers:
         now = _normalize_now_for(lst_time)
         if lst_time and (now - lst_time).total_seconds() < cooldown_seconds:
             wait_time = cooldown_seconds - (now - lst_time).total_seconds()
-            yield event.plain_result(f"⏳ 您还需要等待 {int(wait_time)} 秒才能再次钓鱼。")
+            yield event.plain_result(
+                f"⏳ 您还需要等待 {int(wait_time)} 秒才能再次钓鱼。"
+            )
             return
         fishing_cost = self._get_fishing_cost(user)
         result = self.fishing_service.go_fish(user_id)
@@ -173,7 +179,9 @@ class FishingHandlers:
 
         # 切换用户的钓鱼区域
         result = self.fishing_service.set_user_fishing_zone(user_id, zone_id)
-        yield event.plain_result(result["message"] if result else "❌ 出错啦！请稍后再试。")
+        yield event.plain_result(
+            result["message"] if result else "❌ 出错啦！请稍后再试。"
+        )
 
     async def fish_pokedex(self, event: AstrMessageEvent):
         """查看鱼类图鉴"""
@@ -198,7 +206,9 @@ class FishingHandlers:
         user_info = self.plugin.user_repo.get_by_id(user_id)
 
         # 绘制图片
-        output_path = safe_get_file_path(self.plugin, f"pokedex_{user_id}_page_{page}.png")
+        output_path = safe_get_file_path(
+            self.plugin, f"pokedex_{user_id}_page_{page}.png"
+        )
 
         try:
             await draw_pokedex(
