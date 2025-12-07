@@ -777,6 +777,10 @@ async def list_any(
         except Exception:
             yield event.plain_result("❌ 无效的道具ID，请检查后重试。")
             return
+        if item_id in {5, 19}:
+            item_template = plugin.item_template_repo.get_item_by_id(item_id)
+            yield event.plain_result(f"❌ 【{item_template.name}】不可上架至市场。")
+            return
         result = plugin.market_service.put_item_on_sale(
             user_id,
             "item",
