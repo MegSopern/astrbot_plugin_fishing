@@ -109,8 +109,8 @@ async def ten_gacha(self: "FishingPlugin", event: AstrMessageEvent):
             if times <= 0:
                 yield event.plain_result("❌ 抽卡次数必须大于0")
                 return
-            if times > 100:
-                yield event.plain_result("❌ 单次最多只能进行100次十连抽卡")
+            if times > 2000:
+                yield event.plain_result("❌ 单次最多只能进行2000次十连抽卡")
                 return
         else:
             yield event.plain_result("❌ 抽卡次数必须是数字")
