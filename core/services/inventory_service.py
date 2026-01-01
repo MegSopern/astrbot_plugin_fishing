@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 # 导入仓储接口和领域模型
@@ -1872,10 +1872,15 @@ class InventoryService:
                 "message": f"【{item_template.name}】无法直接使用。",
             }
 
-        # 处理特殊道具：兑换凭证
+        # ================处理特殊道具================
+
+        # 高级货币兑换凭证
         if item_id == 21:
             return self.use_exchange_voucher(user_id, item_id, quantity)
 
+        # 【染染的小窝】审批证
+        if item_id == 20:
+            return self.use_ranran_approval_certificate(user_id, quantity)
         effect_type = item_template.effect_type
         if not effect_type:
             return {
@@ -1918,31 +1923,6 @@ class InventoryService:
             # 异常处理，防止某个效果的bug导致整个流程中断
             # 在实际生产中，这里应该有更详细的日志记录
             return {"success": False, "message": f"使用道具时发生未知错误: {e}"}
-
-    # 使用兑换凭证的实现逻辑
-    def use_exchange_voucher(
-        self, user_id: str, voucher_item_id: int, quantity: int = 1
-    ) -> Dict[str, Any]:
-        """
-        使用高级货币兑换凭证进行兑换，获得高级货币
-        """
-        user = self.user_repo.get_by_id(user_id)
-
-        try:
-            premium_currency_reward = 30  # 每个兑换凭证兑换30高级货币
-            total_reward = premium_currency_reward * quantity
-            user.premium_currency += total_reward
-            self.user_repo.update(user)
-            self.inventory_repo.decrease_item_quantity(
-                user_id, voucher_item_id, quantity
-            )
-            result = {
-                "success": True,
-                "message": f"成功使用了 {quantity} 个兑换凭证，获得了 {total_reward} 高级货币！",
-            }
-            return result
-        except Exception as e:
-            return {"success": False, "message": f"使用兑换凭证时发生未知错误: {e}"}
 
     def open_all_money_bags(self, user_id: str) -> Dict[str, Any]:
         """
@@ -2260,3 +2240,78 @@ class InventoryService:
             "success": True,
             "message": f"🔓 成功解锁【{accessory_name}】，该饰品现在可以正常操作",
         }
+
+    # 使用兑换凭证的实现逻辑
+    def use_exchange_voucher(
+        self, user_id: str, voucher_item_id: int, quantity: int = 1
+    ) -> Dict[str, Any]:
+        """
+        使用高级货币兑换凭证进行兑换，获得高级货币
+        """
+        user = self.user_repo.get_by_id(user_id)
+
+        try:
+            premium_currency_reward = 30  # 每个兑换凭证兑换30高级货币
+            total_reward = premium_currency_reward * quantity
+            user.premium_currency += total_reward
+            self.user_repo.update(user)
+            self.inventory_repo.decrease_item_quantity(
+                user_id, voucher_item_id, quantity
+            )
+            result = {
+                "success": True,
+                "message": f"成功使用了 {quantity} 个兑换凭证，获得了 {total_reward} 高级货币！",
+            }
+            return result
+        except Exception as e:
+            return {"success": False, "message": f"使用兑换凭证时发生未知错误: {e}"}
+
+    # 【染染的小窝】审批证使用的实现逻辑
+    def use_ranran_approval_certificate(
+        self, user_id: str, quantity: int = 1
+    ) -> Dict[str, Any]:
+        """
+        使用【染染的小窝】审批证
+        """
+        # 导入qqadmin插件扩展
+        try:
+            from ....ranranbot_chatmanage.core.qqadmin_handler import QQadminHandler
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"❌ 审批模块不可用：{exc}",
+            }
+
+        if quantity > 1:
+            return {
+                "success": False,
+                "message": "❌ 【染染的小窝】审批证 每次只能使用一个",
+            }
+
+        qqadmin_handler = QQadminHandler(config=self.config)
+
+        # 已拥有权限则提示并不消耗道具
+        if user_id in qqadmin_handler.extra_approvers:
+            return {
+                "success": True,
+                "message": "✅ 你已拥有【染染的小窝】审批权限，无需重复使用",
+            }
+
+        # 添加审批权限
+        qqadmin_handler.extra_approvers.append(user_id)
+        try:
+            qqadmin_cfg = self.config.setdefault("qqadmin", {})
+            extra_cfg = qqadmin_cfg.setdefault("extra_approvers", [])
+            if user_id not in extra_cfg:
+                extra_cfg.append(user_id)
+        except Exception:
+            # 配置结构异常时仍视为成功（权限已添加到handler），不中断流程
+            pass
+
+        msg = (
+            "🎊 恭喜你！ 🎊"
+            "🎉你成功使用【染染的小窝】审批证 🎫\n"
+            "✨ 正式获得【染染的小窝】审批权限请妥善使用哦！"
+        )
+
+        return {"success": True, "message": msg}
