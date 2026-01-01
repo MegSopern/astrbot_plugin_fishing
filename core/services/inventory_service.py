@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 # 导入仓储接口和领域模型
@@ -2273,44 +2274,46 @@ class InventoryService:
         """
         使用【染染的小窝】审批证
         """
-        # 导入qqadmin插件扩展
-        try:
-            from ....ranranbot_chatmanage.core.qqadmin_handler import QQadminHandler
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": f"❌ 审批模块不可用：{exc}",
-            }
-
         if quantity > 1:
             return {
                 "success": False,
                 "message": "❌ 【染染的小窝】审批证 每次只能使用一个",
             }
-
-        qqadmin_handler = QQadminHandler(config=self.config)
-
-        # 已拥有权限则提示并不消耗道具
-        if user_id in qqadmin_handler.extra_approvers:
+        ranran_config_dir = (
+            Path(__file__).parent.parent.parent.parent
+            / "config"
+            / "ranranbot_chatmanage_config.json"
+        )
+        try:
+            with ranran_config_dir.open("r", encoding="utf-8-sig") as f:
+                ranran_config = json.load(f)
+        except Exception:
+            return {
+                "success": False,
+                "message": "❌ 读取群审批管理配置文件失败，无法使用审批证",
+            }
+        extra_approvers = ranran_config.get("qqadmin", {}).get("extra_approvers", [])
+        # 已拥有权限则提示
+        if user_id in extra_approvers:
             return {
                 "success": True,
                 "message": "✅ 你已拥有【染染的小窝】审批权限，无需重复使用",
             }
 
         # 添加审批权限
-        qqadmin_handler.extra_approvers.append(user_id)
         try:
-            qqadmin_cfg = self.config.setdefault("qqadmin", {})
-            extra_cfg = qqadmin_cfg.setdefault("extra_approvers", [])
-            if user_id not in extra_cfg:
-                extra_cfg.append(user_id)
+            extra_approvers.append(user_id)
+            ranran_config["qqadmin"]["extra_approvers"] = extra_approvers
+            with ranran_config_dir.open("w", encoding="utf-8-sig") as f:
+                json.dump(ranran_config, f, ensure_ascii=False, indent=4)
         except Exception:
-            # 配置结构异常时仍视为成功（权限已添加到handler），不中断流程
-            pass
-
+            return {
+                "success": False,
+                "message": "❌ 写入群审批管理配置文件失败，无法使用审批证",
+            }
         msg = (
             "🎊 恭喜你！ 🎊"
-            "🎉你成功使用【染染的小窝】审批证 🎫\n"
+            "🎉 你成功使用【染染的小窝】审批证 🎫\n"
             "✨ 正式获得【染染的小窝】审批权限请妥善使用哦！"
         )
 
